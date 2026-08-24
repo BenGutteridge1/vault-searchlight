@@ -1,12 +1,10 @@
 /* Vault Searchlight — compact, theme-native Obsidian search */
-.floating-search-container,
-.modal-container:has(.floating-search-modal) {
+.floating-search-container {
   align-items: flex-start;
   padding-top: clamp(54px, 10vh, 112px);
 }
 
-.modal-bg:has(+ .floating-search-modal),
-.modal-container:has(.floating-search-modal) .modal-bg {
+.floating-search-container .modal-bg {
   background: rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(1px);
 }
@@ -24,14 +22,6 @@
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-}
-
-body:has(.floating-search-modal) .modal-close-button,
-.floating-search-container .modal-close-button,
-.modal-container:has(.floating-search-modal) .modal-close-button,
-.floating-search-modal .modal-close-button,
-.floating-search-modal .modal-header-button {
-  display: none !important;
 }
 
 .floating-search-content {
@@ -77,8 +67,8 @@ body:has(.floating-search-modal) .modal-close-button,
     0 0 0 1px color-mix(in srgb, var(--interactive-accent) 26%, transparent);
 }
 
-.floating-search-toolbar > button.floating-search-select,
-.floating-search-toolbar > button.floating-search-icon-button {
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-select,
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-icon-button {
   display: inline-flex;
   width: 52px;
   min-width: 52px;
@@ -88,39 +78,39 @@ body:has(.floating-search-modal) .modal-close-button,
   gap: 3px;
   margin: 0;
   padding: 0;
-  border: 0 !important;
+  border: 0;
   border-radius: 0;
   outline: 0;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-normal);
-  box-shadow: none !important;
+  box-shadow: none;
   transition:
     background-color 130ms ease,
     color 130ms ease;
 }
 
-.floating-search-toolbar > button.floating-search-select:hover,
-.floating-search-toolbar > button.floating-search-icon-button:hover {
-  background: var(--background-modifier-hover) !important;
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-select:hover,
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-icon-button:hover {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.floating-search-toolbar > button.floating-search-select:active,
-.floating-search-toolbar > button.floating-search-icon-button:active {
-  background: color-mix(in srgb, var(--background-modifier-hover) 80%, var(--interactive-accent) 20%) !important;
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-select:active,
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-icon-button:active {
+  background: color-mix(in srgb, var(--background-modifier-hover) 80%, var(--interactive-accent) 20%);
 }
 
-.floating-search-toolbar > button.floating-search-select:focus-visible,
-.floating-search-toolbar > button.floating-search-icon-button:focus-visible {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 48%, transparent) !important;
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-select:focus-visible,
+.modal-container.floating-search-container .floating-search-toolbar > button.floating-search-icon-button:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 48%, transparent);
 }
 
 .floating-search-scope {
-  border-radius: 13px 0 0 13px !important;
+  border-radius: 13px 0 0 13px;
 }
 
 .floating-search-sort {
-  border-radius: 0 13px 13px 0 !important;
+  border-radius: 0 13px 13px 0;
 }
 
 .floating-search-input-wrap {
@@ -172,28 +162,28 @@ body:has(.floating-search-modal) .modal-close-button,
   color: var(--text-muted);
 }
 
-.floating-search-input {
+.modal-container.floating-search-container input.floating-search-input {
   width: 100%;
   height: 40px;
   min-width: 0;
   margin: 0;
   padding: 0 0 0 9px;
-  border: 0 !important;
+  border: 0;
   border-radius: 0;
   outline: 0;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-normal);
-  box-shadow: none !important;
+  box-shadow: none;
   font-family: var(--font-interface);
   font-size: var(--font-ui-medium);
   line-height: 40px;
 }
 
-.floating-search-input::placeholder {
+.modal-container.floating-search-container input.floating-search-input::placeholder {
   color: var(--text-faint);
 }
 
-.floating-search-input::-webkit-search-cancel-button {
+.modal-container.floating-search-container input.floating-search-input::-webkit-search-cancel-button {
   display: none;
 }
 
@@ -436,7 +426,6 @@ body:has(.floating-search-modal) .modal-close-button,
   overflow: hidden;
   border: 0;
   clip: rect(0 0 0 0);
-  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -457,8 +446,7 @@ body:has(.floating-search-modal) .modal-close-button,
 }
 
 @media (max-width: 620px) {
-  .floating-search-container,
-  .modal-container:has(.floating-search-modal) {
+  .floating-search-container {
     padding-top: 14px;
   }
 
