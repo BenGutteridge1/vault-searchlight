@@ -1,0 +1,10 @@
+{
+  "id": "vault-searchlight",
+  "name": "Vault Searchlight",
+  "version": "1.3.1",
+  "minAppVersion": "1.13.7",
+  "description": "A fast, theme-aware search for the current file or the whole vault.",
+  "author": "Ben Gutteridge",
+  "authorUrl": "https://github.com/BenGutteridge1",
+  "isDesktopOnly": false
+}
