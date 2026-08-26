@@ -1,6 +1,6 @@
 {
   "id": "vault-searchlight",
-  "name": "Vault Searchlight",
+  "name": "Beacon",
   "version": "1.4.0",
   "minAppVersion": "1.13.7",
   "description": "Fast, theme-aware search and heading navigation for the current note or whole vault.",

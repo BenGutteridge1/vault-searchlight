@@ -10,6 +10,7 @@ import {
 import {
   extractMarkdownHeadings,
   headingHighlightTerms,
+  headingSelectionRange,
   matchingHeadingIndexes,
 } from "./headings";
 import type { HeadingEntry } from "./headings";
@@ -89,10 +90,13 @@ export class HeadingNavigatorModal extends Modal {
   private matchIndexes: number[] = [];
   private matchCursor = -1;
   private renderGeneration = 0;
+  private previewGeneration = 0;
   private renderer: Component | undefined;
+  private readonly headingRenderCache = new Map<string, HTMLElement>();
   private closeButtonObserver: MutationObserver | undefined;
 
   private inputEl!: HTMLInputElement;
+  private currentHeadingEl!: HTMLElement;
   private resultsEl!: HTMLElement;
   private statusEl!: HTMLElement;
 
@@ -122,8 +126,10 @@ export class HeadingNavigatorModal extends Modal {
     this.closeButtonObserver?.disconnect();
     this.closeButtonObserver = undefined;
     this.renderGeneration += 1;
+    this.previewGeneration += 1;
     this.renderer?.unload();
     this.renderer = undefined;
+    this.headingRenderCache.clear();
     this.plugin.headingNavigatorClosed(this);
     this.contentEl.empty();
   }
@@ -152,7 +158,12 @@ export class HeadingNavigatorModal extends Modal {
     const shortcut = toolbar.createSpan({ cls: "heading-navigator-shortcut", text: "↵" });
     shortcut.setAttr("aria-hidden", "true");
 
-    this.resultsEl = this.contentEl.createDiv({
+    const panel = this.contentEl.createDiv({ cls: "heading-navigator-panel" });
+    this.currentHeadingEl = panel.createDiv({
+      cls: "heading-navigator-current",
+      attr: { "aria-label": "Current heading" },
+    });
+    this.resultsEl = panel.createDiv({
       cls: "heading-navigator-results",
       attr: { role: "listbox", "aria-label": `Headings in ${this.file.basename}` },
     });
@@ -203,7 +214,7 @@ export class HeadingNavigatorModal extends Modal {
     await this.renderHeadings(generation);
     if (generation !== this.renderGeneration) return;
     this.updateMatches();
-    this.updateSelectedRow(true);
+    this.updateSelectedRow(true, false);
   }
 
   private async renderHeadings(generation: number): Promise<void> {
@@ -211,14 +222,19 @@ export class HeadingNavigatorModal extends Modal {
     const renderer = new Component();
     renderer.load();
     this.renderer = renderer;
-    const cache = new Map<string, HTMLElement>();
+    this.headingRenderCache.clear();
     this.resultsEl.empty();
 
     if (this.headings.length === 0) {
+      this.currentHeadingEl.hide();
       this.resultsEl.createDiv({ cls: "heading-navigator-empty", text: "No headings in this file" });
       this.statusEl.setText("No headings");
       return;
     }
+
+    this.currentHeadingEl.show();
+    await this.updateCurrentHeading(this.selectedIndex, generation);
+    if (generation !== this.renderGeneration) return;
 
     for (let index = 0; index < this.headings.length; index += 1) {
       if (generation !== this.renderGeneration) return;
@@ -233,28 +249,15 @@ export class HeadingNavigatorModal extends Modal {
       row.createSpan({ cls: "heading-navigator-level", text: `H${heading.level}` });
       const body = row.createDiv({ cls: "heading-navigator-row-body" });
       const title = body.createDiv({ cls: "heading-navigator-title markdown-rendered" });
-      await renderHeading(this.app, heading.markdown, title, this.file.path, renderer, cache);
+      await renderHeading(
+        this.app,
+        heading.markdown,
+        title,
+        this.file.path,
+        renderer,
+        this.headingRenderCache,
+      );
       if (generation !== this.renderGeneration) return;
-
-      if (heading.parents.length > 0) {
-        const context = body.createDiv({ cls: "heading-navigator-context" });
-        for (let parentIndex = 0; parentIndex < heading.parents.length; parentIndex += 1) {
-          if (parentIndex > 0) {
-            const divider = context.createSpan({ cls: "heading-navigator-context-divider" });
-            setIcon(divider, "chevron-right");
-          }
-          const parent = context.createSpan({ cls: "heading-navigator-parent markdown-rendered" });
-          await renderHeading(
-            this.app,
-            heading.parents[parentIndex],
-            parent,
-            this.file.path,
-            renderer,
-            cache,
-          );
-          if (generation !== this.renderGeneration) return;
-        }
-      }
 
       row.addEventListener("mouseenter", () => {
         this.selectedIndex = index;
@@ -268,6 +271,58 @@ export class HeadingNavigatorModal extends Modal {
         await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       }
     }
+  }
+
+  private async updateCurrentHeading(index: number, generation = this.renderGeneration): Promise<void> {
+    const previewGeneration = ++this.previewGeneration;
+    const heading = this.headings[index];
+    const renderer = this.renderer;
+    if (!heading || !renderer) return;
+
+    // Render into a detached preview so an older hover cannot overwrite a
+    // newer selection while MarkdownRenderer is still resolving.
+    const preview = createDiv();
+    const title = preview.createDiv({ cls: "heading-navigator-current-title markdown-rendered" });
+    await renderHeading(
+      this.app,
+      heading.markdown,
+      title,
+      this.file.path,
+      renderer,
+      this.headingRenderCache,
+    );
+    if (
+      generation !== this.renderGeneration ||
+      previewGeneration !== this.previewGeneration ||
+      index !== this.selectedIndex
+    ) return;
+
+    if (heading.parents.length > 0) {
+      const path = preview.createDiv({ cls: "heading-navigator-current-path" });
+      for (let parentIndex = 0; parentIndex < heading.parents.length; parentIndex += 1) {
+        if (parentIndex > 0) {
+          const divider = path.createSpan({ cls: "heading-navigator-context-divider" });
+          setIcon(divider, "chevron-right");
+        }
+        const parent = path.createSpan({ cls: "heading-navigator-parent markdown-rendered" });
+        await renderHeading(
+          this.app,
+          heading.parents[parentIndex],
+          parent,
+          this.file.path,
+          renderer,
+          this.headingRenderCache,
+        );
+        if (
+          generation !== this.renderGeneration ||
+          previewGeneration !== this.previewGeneration ||
+          index !== this.selectedIndex
+        ) return;
+      }
+    }
+
+    this.currentHeadingEl.empty();
+    while (preview.firstChild) this.currentHeadingEl.appendChild(preview.firstChild);
   }
 
   private updateMatches(): void {
@@ -301,7 +356,7 @@ export class HeadingNavigatorModal extends Modal {
     this.updateSelectedRow(true);
   }
 
-  private updateSelectedRow(scroll: boolean): void {
+  private updateSelectedRow(scroll: boolean, updatePreview = true): void {
     const rows = Array.from(this.resultsEl.querySelectorAll<HTMLElement>(".heading-navigator-row"));
     rows.forEach((row, index) => {
       const selected = index === this.selectedIndex;
@@ -309,6 +364,7 @@ export class HeadingNavigatorModal extends Modal {
       row.setAttr("aria-selected", selected ? "true" : "false");
       if (selected && scroll) row.scrollIntoView({ block: "nearest" });
     });
+    if (updatePreview) void this.updateCurrentHeading(this.selectedIndex);
   }
 
   private async jumpToSelected(): Promise<void> {
@@ -320,9 +376,10 @@ export class HeadingNavigatorModal extends Modal {
     }
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.editor) return;
-    const position = { line: Math.min(heading.line, view.editor.lineCount() - 1), ch: 0 };
-    view.editor.setCursor(position);
-    view.editor.scrollIntoView({ from: position, to: position }, true);
+    const line = Math.min(Math.max(heading.line, 0), view.editor.lineCount() - 1);
+    const range = headingSelectionRange(line, view.editor.getLine(line));
+    view.editor.setSelection(range.from, range.to);
+    view.editor.scrollIntoView(range, true);
     view.editor.focus();
   }
 }

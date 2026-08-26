@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractMarkdownHeadings,
   headingMatchesQuery,
+  headingSelectionRange,
   matchingHeadingIndexes,
 } from "./headings";
 
@@ -65,5 +66,21 @@ describe("heading query matching", () => {
   it("returns indexes without filtering the source list", () => {
     expect(matchingHeadingIndexes(headings, "atlas")).toEqual([0, 2]);
     expect(headings).toHaveLength(3);
+  });
+});
+
+describe("heading selection ranges", () => {
+  it("selects the complete heading line", () => {
+    expect(headingSelectionRange(4, "## Findings")).toEqual({
+      from: { line: 4, ch: 0 },
+      to: { line: 4, ch: 11 },
+    });
+  });
+
+  it("keeps empty and negative inputs safe", () => {
+    expect(headingSelectionRange(-2, "")).toEqual({
+      from: { line: 0, ch: 0 },
+      to: { line: 0, ch: 0 },
+    });
   });
 });

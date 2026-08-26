@@ -139,7 +139,7 @@ export class SearchIndex {
       return await this.indexFile(file);
     } catch (error) {
       this.entries.delete(file.path);
-      console.warn(`Vault Searchlight could not index ${file.path}`, error);
+      console.warn(`Beacon could not index ${file.path}`, error);
       return undefined;
     }
   }

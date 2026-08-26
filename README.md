@@ -1,13 +1,17 @@
-# Vault Searchlight for Obsidian
+# Beacon for Obsidian
 
-Vault Searchlight is a compact, theme-aware search and heading navigation plugin for the focused Markdown note or the entire vault. The query always stays untouched when switching scope—no injected `path:` prefix and no directory text.
+Beacon is a compact, theme-aware search and heading navigation plugin for the focused Markdown note or the entire vault. The query always stays untouched when switching scope—no injected `path:` prefix and no directory text.
 
-![Vault Searchlight showing rendered, highlighted results](./assets/vault-searchlight.jpg)
+![Beacon showing rendered, highlighted results](./assets/vault-searchlight.jpg)
+
+## In-file heading navigator
+
+Open the heading navigator to browse the outline for the focused note. It shows rendered Markdown titles with their H1–H6 hierarchy and nesting, keeps the full outline visible while you search, and supports keyboard navigation with the arrow keys, `Enter` to cycle matches, and `Shift+Enter` to jump. Jumping selects and highlights the full destination heading line in the editor until the next editor action.
 
 ## Features
 
 - **This file / All files / Properties / Tags** search-mode dropdown with icons and a remembered file-search default.
-- A middle-right heading navigator for the focused note, with H1–H6 badges, rendered Markdown titles, nesting context, and hidden-track scrolling.
+- A middle-right heading navigator for the focused note with hidden-track scrolling.
 - Heading searches keep the full outline visible and highlight matches in place; `Enter` cycles matches and `Shift+Enter` jumps to the selected heading.
 - Rendered Markdown excerpts with theme-accent match highlights.
 - File and Markdown-rendered heading hierarchy shown above every excerpt, including links and inline formatting.
@@ -63,7 +67,7 @@ Operators are optional. Changing search mode never modifies the search term. Pro
 | Open tag search |
 | Open heading navigator for current file |
 
-Assign any shortcut you prefer in **Settings → Hotkeys → Vault Searchlight**. While the search panel is open, `F` toggles between current-file and all-files search, `S` cycles sorting, the arrow keys navigate results, and `Enter` opens the selected result. In the heading navigator, `Enter` cycles matching headings, `Shift+Enter` jumps to the selected heading, and the arrow keys move through the full outline.
+Assign any shortcut you prefer in **Settings → Hotkeys → Beacon**. While the search panel is open, `F` toggles between current-file and all-files search, `S` cycles sorting, the arrow keys navigate results, and `Enter` opens the selected result. In the heading navigator, `Enter` cycles matching headings, `Shift+Enter` jumps to the selected heading, and the arrow keys move through the full outline.
 
 ## Settings
 
@@ -79,18 +83,18 @@ Assign any shortcut you prefer in **Settings → Hotkeys → Vault Searchlight**
 After the plugin is accepted into the Community Plugins directory:
 
 1. Open **Settings → Community plugins → Browse** in Obsidian.
-2. Search for **Vault Searchlight**, select it, and choose **Install**.
+2. Search for **Beacon**, select it, and choose **Install**.
 3. Enable the plugin.
 
 For a manual installation, download `main.js`, `manifest.json`, and `styles.css` from the latest GitHub release and place them in:
 
 `<vault>/.obsidian/plugins/vault-searchlight/`
 
-Reload Obsidian, then enable **Vault Searchlight** under Community plugins.
+The plugin ID and install folder remain `vault-searchlight` for update continuity. Reload Obsidian, then enable **Beacon** under Community plugins.
 
 ## Privacy
 
-Vault Searchlight performs indexing and searching locally inside Obsidian. It makes no network requests and includes no analytics or telemetry.
+Beacon performs indexing and searching locally inside Obsidian. It makes no network requests and includes no analytics or telemetry.
 
 ## Development
 

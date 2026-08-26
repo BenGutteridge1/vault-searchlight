@@ -12,6 +12,20 @@ export interface HeadingEntry {
   parents: string[];
 }
 
+export interface HeadingSelectionRange {
+  from: { line: number; ch: number };
+  to: { line: number; ch: number };
+}
+
+export function headingSelectionRange(line: number, lineText: string): HeadingSelectionRange {
+  const safeLine = Math.max(0, Math.trunc(line));
+  const end = Math.max(0, lineText.length);
+  return {
+    from: { line: safeLine, ch: 0 },
+    to: { line: safeLine, ch: end },
+  };
+}
+
 function queryTerms(query: string): string[] {
   return (query.match(/"[^"]+"|\S+/g) ?? [])
     .map((term) => term.replace(/^"|"$/g, "").toLocaleLowerCase())
