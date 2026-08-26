@@ -456,13 +456,29 @@ export class FloatingSearchModal extends Modal {
 
     const files = this.filesForScope();
     if (files.length === 0) {
+      const activeFile = this.app.workspace.getActiveFile();
+      const activeMarkdownFile = activeFile?.extension === "md";
+      const activeFileExcluded =
+        this.scopeMode === "file" &&
+        activeMarkdownFile &&
+        this.plugin.isFileExcluded(activeFile.path);
       this.results = [];
       this.resultsEl.empty();
       this.resultsEl.createDiv({
         cls: "floating-search-empty",
-        text: "Focus a Markdown note to search this file.",
+        text: activeFileExcluded
+          ? "This file is excluded by the plugin settings."
+          : this.scopeMode === "file"
+            ? "Focus a Markdown note to search this file."
+            : "No Markdown files are included in search.",
       });
-      this.statusEl.setText("No focused note");
+      this.statusEl.setText(
+        activeFileExcluded
+          ? "File excluded"
+          : this.scopeMode === "file"
+            ? "No focused note"
+            : "No included files",
+      );
       return;
     }
 
@@ -489,9 +505,15 @@ export class FloatingSearchModal extends Modal {
   }
 
   private filesForScope(): TFile[] {
-    if (this.scopeMode !== "file") return this.app.vault.getMarkdownFiles();
+    if (this.scopeMode !== "file") {
+      return this.app.vault
+        .getMarkdownFiles()
+        .filter((file) => !this.plugin.isFileExcluded(file.path));
+    }
     const active = this.app.workspace.getActiveFile();
-    return active?.extension === "md" ? [active] : [];
+    return active?.extension === "md" && !this.plugin.isFileExcluded(active.path)
+      ? [active]
+      : [];
   }
 
   private async renderResults(): Promise<void> {

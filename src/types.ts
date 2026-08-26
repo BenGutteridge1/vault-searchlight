@@ -16,6 +16,8 @@ export interface FloatingSearchSettings {
   fuzzy: boolean;
   excludeHeadingMatches: boolean;
   excludeExcalidrawData: boolean;
+  excludeExcalidrawDataFromHeadings: boolean;
+  excludedFiles: string;
   sort: SortMode;
   resultLimit: number;
 }

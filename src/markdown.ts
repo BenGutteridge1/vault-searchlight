@@ -27,7 +27,7 @@ export function findFrontmatterLines(lines: string[]): Set<number> {
   return found;
 }
 
-function plainHeadingText(markdown: string): string {
+export function plainHeadingText(markdown: string): string {
   return markdown
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
     .replace(/\[\[([^\]]+)\]\]/g, "$1")

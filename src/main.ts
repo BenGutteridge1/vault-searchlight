@@ -4,6 +4,8 @@ import {
   PluginSettingTab,
 } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
+import { HeadingNavigatorModal } from "./heading-navigator";
+import { compilePathExclusions } from "./path-exclusions";
 import { SearchIndex } from "./search-index";
 import { FloatingSearchModal, noticeNoActiveFile } from "./search-modal";
 import type {
@@ -17,6 +19,8 @@ const DEFAULT_SETTINGS: FloatingSearchSettings = {
   fuzzy: false,
   excludeHeadingMatches: false,
   excludeExcalidrawData: false,
+  excludeExcalidrawDataFromHeadings: false,
+  excludedFiles: "",
   sort: "relevance",
   resultLimit: 100,
 };
@@ -25,6 +29,8 @@ export default class FloatingSearchPlugin extends Plugin {
   settings: FloatingSearchSettings = DEFAULT_SETTINGS;
   index!: SearchIndex;
   private activeModal: FloatingSearchModal | undefined;
+  private activeHeadingNavigator: HeadingNavigatorModal | undefined;
+  private isExcludedPath = compilePathExclusions("");
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -78,6 +84,15 @@ export default class FloatingSearchPlugin extends Plugin {
         else this.openSearch("tags");
       },
     });
+    this.addCommand({
+      id: "open-heading-navigator",
+      name: "Open heading navigator for current file",
+      checkCallback: (checking) => {
+        const available = this.app.workspace.getActiveFile()?.extension === "md";
+        if (available && !checking) this.openHeadingNavigator();
+        return available;
+      },
+    });
   }
 
   openSearch(scope: SearchScope): void {
@@ -86,6 +101,7 @@ export default class FloatingSearchPlugin extends Plugin {
       return;
     }
     this.activeModal?.close();
+    this.activeHeadingNavigator?.close();
     this.activeModal = new FloatingSearchModal(this.app, this, scope);
     this.activeModal.open();
   }
@@ -94,8 +110,31 @@ export default class FloatingSearchPlugin extends Plugin {
     if (this.activeModal === modal) this.activeModal = undefined;
   }
 
+  openHeadingNavigator(): void {
+    const file = this.app.workspace.getActiveFile();
+    if (file?.extension !== "md") {
+      noticeNoActiveFile();
+      return;
+    }
+    this.activeModal?.close();
+    this.activeHeadingNavigator?.close();
+    this.activeHeadingNavigator = new HeadingNavigatorModal(this.app, this, file);
+    this.activeHeadingNavigator.open();
+  }
+
+  headingNavigatorClosed(modal: HeadingNavigatorModal): void {
+    if (this.activeHeadingNavigator === modal) this.activeHeadingNavigator = undefined;
+  }
+
+  isFileExcluded(path: string): boolean {
+    return this.isExcludedPath(path);
+  }
+
   async updateSettings(patch: Partial<FloatingSearchSettings>): Promise<void> {
     this.settings = { ...this.settings, ...patch };
+    if (patch.excludedFiles !== undefined) {
+      this.isExcludedPath = compilePathExclusions(this.settings.excludedFiles);
+    }
     await this.saveData(this.settings);
   }
 
@@ -108,9 +147,17 @@ export default class FloatingSearchPlugin extends Plugin {
         loaded?.excludeHeadingMatches ?? DEFAULT_SETTINGS.excludeHeadingMatches,
       excludeExcalidrawData:
         loaded?.excludeExcalidrawData ?? DEFAULT_SETTINGS.excludeExcalidrawData,
+      excludeExcalidrawDataFromHeadings:
+        loaded?.excludeExcalidrawDataFromHeadings ??
+        DEFAULT_SETTINGS.excludeExcalidrawDataFromHeadings,
+      excludedFiles:
+        typeof loaded?.excludedFiles === "string"
+          ? loaded.excludedFiles
+          : DEFAULT_SETTINGS.excludedFiles,
       sort: loaded?.sort ?? DEFAULT_SETTINGS.sort,
       resultLimit: loaded?.resultLimit ?? DEFAULT_SETTINGS.resultLimit,
     };
+    this.isExcludedPath = compilePathExclusions(this.settings.excludedFiles);
   }
 
   private async cycleStoredSort(): Promise<void> {
@@ -165,6 +212,26 @@ class FloatingSearchSettingTab extends PluginSettingTab {
         },
       },
       {
+        name: "Excluded files",
+        desc: "Exclude files from every search mode. Enter one vault-relative path or glob per line, for example Archive/, Private.md, or *.excalidraw.md.",
+        control: {
+          type: "textarea",
+          key: "excludedFiles",
+          placeholder: "Archive/\nPrivate.md\n*.excalidraw.md",
+          rows: 4,
+          defaultValue: DEFAULT_SETTINGS.excludedFiles,
+        },
+      },
+      {
+        name: "Exclude Excalidraw data from heading navigator",
+        desc: "Hide the Excalidraw data heading and all headings nested beneath it in the heading navigator.",
+        control: {
+          type: "toggle",
+          key: "excludeExcalidrawDataFromHeadings",
+          defaultValue: DEFAULT_SETTINGS.excludeExcalidrawDataFromHeadings,
+        },
+      },
+      {
         name: "Result limit",
         desc: "Limit rendered results to keep the panel fast in large vaults.",
         control: {
@@ -195,8 +262,14 @@ class FloatingSearchSettingTab extends PluginSettingTab {
       case "fuzzy":
       case "excludeHeadingMatches":
       case "excludeExcalidrawData":
+      case "excludeExcalidrawDataFromHeadings":
         if (typeof value === "boolean") {
           await this.plugin.updateSettings({ [key]: value });
+        }
+        return;
+      case "excludedFiles":
+        if (typeof value === "string") {
+          await this.plugin.updateSettings({ excludedFiles: value });
         }
         return;
       case "resultLimit": {

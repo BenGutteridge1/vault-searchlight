@@ -1,18 +1,22 @@
 # Vault Searchlight for Obsidian
 
-Vault Searchlight is a compact, theme-aware search panel for the focused Markdown note or the entire vault. The query always stays untouched when switching scope—no injected `path:` prefix and no directory text.
+Vault Searchlight is a compact, theme-aware search and heading navigation plugin for the focused Markdown note or the entire vault. The query always stays untouched when switching scope—no injected `path:` prefix and no directory text.
 
 ![Vault Searchlight showing rendered, highlighted results](./assets/vault-searchlight.jpg)
 
 ## Features
 
 - **This file / All files / Properties / Tags** search-mode dropdown with icons and a remembered file-search default.
+- A middle-right heading navigator for the focused note, with H1–H6 badges, rendered Markdown titles, nesting context, and hidden-track scrolling.
+- Heading searches keep the full outline visible and highlight matches in place; `Enter` cycles matches and `Shift+Enter` jumps to the selected heading.
 - Rendered Markdown excerpts with theme-accent match highlights.
 - File and Markdown-rendered heading hierarchy shown above every excerpt, including links and inline formatting.
 - Exact quoted word and phrase matching, exclusions, `OR`, regex, and field operators.
 - Optional fuzzy matching controlled only from the plugin settings.
 - Optional heading-match exclusion hides heading-only result cards while retaining heading breadcrumbs.
 - Optional Excalidraw Data exclusion omits generated drawing payload sections.
+- Optional Excalidraw Data exclusion for the heading navigator hides that heading and its nested headings.
+- Vault-relative paths and glob patterns can exclude files from every search mode.
 - Ordinary file searches omit YAML properties and tag tokens; **Properties** searches and shows only YAML property content, while **Tags** searches and shows only tag values.
 - Property and tag modes have dedicated commands and no separate settings toggles.
 - Icon-only relevance, file name, location, and modified-date sorting. The chosen sort survives restarts.
@@ -57,8 +61,18 @@ Operators are optional. Changing search mode never modifies the search term. Pro
 | Cycle result sorting |
 | Open property search |
 | Open tag search |
+| Open heading navigator for current file |
 
-Assign any shortcut you prefer in **Settings → Hotkeys → Vault Searchlight**. While the panel is open, `F` toggles between current-file and all-files search, `S` cycles sorting, the arrow keys navigate results, and `Enter` opens the selected result.
+Assign any shortcut you prefer in **Settings → Hotkeys → Vault Searchlight**. While the search panel is open, `F` toggles between current-file and all-files search, `S` cycles sorting, the arrow keys navigate results, and `Enter` opens the selected result. In the heading navigator, `Enter` cycles matching headings, `Shift+Enter` jumps to the selected heading, and the arrow keys move through the full outline.
+
+## Settings
+
+- **Fuzzy matching** enables inexact matching without adding a control to the search bar.
+- **Exclude heading matches** hides search cards caused only by heading-line matches.
+- **Exclude Excalidraw data** omits generated drawing content from ordinary search.
+- **Excluded files** accepts one vault-relative file, folder, or glob per line, such as `Archive/`, `Private.md`, or `*.excalidraw.md`.
+- **Exclude Excalidraw data from heading navigator** hides the Excalidraw Data outline branch.
+- **Result limit** caps rendered results to keep repeated searches responsive.
 
 ## Installation
 

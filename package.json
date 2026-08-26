@@ -1,7 +1,7 @@
 {
   "name": "obsidian-vault-searchlight",
-  "version": "1.3.2",
-  "description": "A fast, theme-aware search plugin for Obsidian.",
+  "version": "1.4.0",
+  "description": "A fast, theme-aware search and heading navigation plugin for Obsidian.",
   "main": "main.js",
   "type": "module",
   "scripts": {
