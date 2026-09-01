@@ -1,6 +1,6 @@
 {
   "name": "obsidian-beacon",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "A fast, theme-aware search and heading navigation plugin for Obsidian.",
   "main": "main.js",
   "type": "module",
