@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findMatchRange } from "./editor-highlight";
+import { findMatchRange, findMatchRanges } from "./editor-highlight";
 import type { HighlightTerm } from "./types";
 
 function term(value: string, exact = false): HighlightTerm {
@@ -33,5 +33,46 @@ describe("findMatchRange", () => {
       from: 0,
       to: 17,
     });
+  });
+
+  it("returns every matched word on the destination line", () => {
+    expect(
+      findMatchRanges(
+        "Atlas links to plan and atlas",
+        [term("atlas"), term("plan")],
+        false,
+      ),
+    ).toEqual([
+      { from: 0, to: 5 },
+      { from: 15, to: 19 },
+      { from: 24, to: 29 },
+    ]);
+  });
+
+  it("merges overlapping phrase and word matches into safe selections", () => {
+    expect(
+      findMatchRanges(
+        "Project Atlas and Project Atlas",
+        [term("project atlas", true), term("atlas")],
+        false,
+      ),
+    ).toEqual([
+      { from: 0, to: 13 },
+      { from: 18, to: 31 },
+    ]);
+  });
+
+  it("returns every regular-expression match", () => {
+    expect(
+      findMatchRanges(
+        "Atlas, atlas, ATLAS",
+        [{ value: "", exact: false, caseSensitive: false, regex: /atlas/i }],
+        false,
+      ),
+    ).toEqual([
+      { from: 0, to: 5 },
+      { from: 7, to: 12 },
+      { from: 14, to: 19 },
+    ]);
   });
 });

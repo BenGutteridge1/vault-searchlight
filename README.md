@@ -1,6 +1,6 @@
 # Beacon for Obsidian
 
-Beacon is a compact, theme-aware search and heading navigation plugin for the focused Markdown note or the entire vault. The query always stays untouched when switching scope—no injected `path:` prefix and no directory text.
+Beacon is a compact, theme-aware search and heading navigation plugin for Obsidian on desktop and mobile. Search the focused Markdown note or the entire vault while the query stays untouched when switching scope—no injected `path:` prefix and no directory text.
 
 ![Beacon showing rendered, highlighted results](./assets/vault-searchlight.jpg)
 
@@ -28,8 +28,15 @@ Open the heading navigator to browse the outline for the focused note. It shows 
 - Results appear in a separate theme-native panel with hidden-track scrolling and no command footer.
 - No close control; click outside or press `Esc` to dismiss the search.
 - Clicking a result opens its note and selects the exact match until the next editor action.
-- Incremental in-memory indexing, debounced input, stale-search cancellation, and capped rendering for large vaults.
+- Incremental in-memory indexing, shared in-flight reads, debounced input, immediate stale-search cancellation, and frame-budgeted rendering for large vaults.
 - Keyboard navigation and commands for every switchable option.
+- Responsive phone and tablet layouts with safe-area support, touch-sized controls, and software-keyboard-aware sizing.
+
+## Mobile
+
+Beacon supports the same search modes, query syntax, sorting, rendered results, result jumps, and heading navigator on Obsidian Mobile. The panels follow the visible screen as the software keyboard opens, respect device safe areas, use touch-sized controls, and avoid reopening the keyboard after a result or heading jump. Mobile indexing and Markdown rendering yield in smaller batches to keep scrolling and typing responsive while preserving the desktop behavior and layout.
+
+Open Beacon from the command palette, or add any Beacon command to Obsidian's mobile toolbar or Quick Action. Hardware-keyboard hotkeys continue to work when a keyboard is connected.
 
 ## Query syntax
 
@@ -67,7 +74,7 @@ Operators are optional. Changing search mode never modifies the search term. Pro
 | Open tag search |
 | Open heading navigator for current file |
 
-Assign any shortcut you prefer in **Settings → Hotkeys → Beacon**. While the search panel is open, `F` toggles between current-file and all-files search, `S` cycles sorting, the arrow keys navigate results, and `Enter` opens the selected result. In the heading navigator, `Enter` cycles matching headings, `Shift+Enter` jumps to the selected heading, and the arrow keys move through the full outline.
+Assign any shortcut you prefer in **Settings → Hotkeys → Beacon**. While the search panel is open, `Mod+Alt+F` toggles between current-file and all-files search, `Mod+Alt+S` cycles sorting, the arrow keys navigate results, and `Enter` opens the selected result. In the heading navigator, `Enter` cycles matching headings, `Shift+Enter` jumps to the selected heading, and the arrow keys move through the full outline.
 
 ## Settings
 

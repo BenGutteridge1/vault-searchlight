@@ -30,8 +30,6 @@ function indexedFile(lines: string[], path = "Research/Atlas.md"): IndexedFile {
       basename: path.split("/").pop()?.replace(/\.md$/, "") ?? "Atlas",
       stat: { mtime: 100, ctime: 50, size: content.length },
     } as IndexedFile["file"],
-    content,
-    lowerContent: content.toLocaleLowerCase(),
     lines,
     lowerLines: lines.map((line) => line.toLocaleLowerCase()),
     linesWithoutTags,
@@ -167,5 +165,19 @@ describe("searchIndexedFile", () => {
         options({ mode: "tags" }),
       ),
     ).toHaveLength(1);
+  });
+
+  it("reuses prepared exact and regex queries without leaking matcher state", () => {
+    const file = indexedFile(["Atlas starts here", "Project Atlas", "No match"]);
+    const exact = parseQuery('"project atlas"');
+    const regex = parseQuery("/Atlas/g");
+
+    expect(searchIndexedFile(exact, file, false, options())).toEqual(
+      searchIndexedFile(exact, file, false, options()),
+    );
+    expect(searchIndexedFile(regex, file, false, options())).toEqual(
+      searchIndexedFile(regex, file, false, options()),
+    );
+    expect(searchIndexedFile(regex, file, false, options()).map((hit) => hit.line)).toEqual([0, 1]);
   });
 });

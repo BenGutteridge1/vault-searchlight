@@ -4,6 +4,7 @@ import {
   MarkdownRenderer,
   MarkdownView,
   Modal,
+  Platform,
   setIcon,
   TFile,
 } from "obsidian";
@@ -15,6 +16,7 @@ import {
 } from "./headings";
 import type { HeadingEntry } from "./headings";
 import type FloatingSearchPlugin from "./main";
+import { installResponsiveViewport } from "./mobile-layout";
 
 function clearHighlights(root: HTMLElement): void {
   for (const mark of Array.from(root.querySelectorAll("mark.heading-navigator-highlight"))) {
@@ -91,9 +93,13 @@ export class HeadingNavigatorModal extends Modal {
   private matchCursor = -1;
   private renderGeneration = 0;
   private previewGeneration = 0;
+  private previewFrame: number | undefined;
   private renderer: Component | undefined;
   private readonly headingRenderCache = new Map<string, HTMLElement>();
+  private headingRows: HTMLElement[] = [];
+  private highlightedMatchIndexes = new Set<number>();
   private closeButtonObserver: MutationObserver | undefined;
+  private disposeViewport = (): void => undefined;
 
   private inputEl!: HTMLInputElement;
   private currentHeadingEl!: HTMLElement;
@@ -112,32 +118,52 @@ export class HeadingNavigatorModal extends Modal {
     this.containerEl.addClass("heading-navigator-container");
     this.modalEl.addClass("heading-navigator-modal");
     this.contentEl.addClass("heading-navigator-content");
+    this.disposeViewport = installResponsiveViewport(this.containerEl, Platform.isMobileApp);
     this.titleEl.hide();
-    this.removeModalCloseButton();
-    this.closeButtonObserver = new MutationObserver(() => this.removeModalCloseButton());
-    this.closeButtonObserver.observe(this.containerEl, { childList: true, subtree: true });
+    if (!this.removeModalCloseButton()) {
+      this.closeButtonObserver = new MutationObserver(() => {
+        if (this.removeModalCloseButton()) {
+          this.closeButtonObserver?.disconnect();
+          this.closeButtonObserver = undefined;
+        }
+      });
+      this.closeButtonObserver.observe(this.containerEl, { childList: true, subtree: true });
+      window.setTimeout(() => {
+        this.removeModalCloseButton();
+        this.closeButtonObserver?.disconnect();
+        this.closeButtonObserver = undefined;
+      }, 0);
+    }
     this.buildShell();
     this.registerKeyboardNavigation();
     void this.loadHeadings();
-    window.setTimeout(() => this.inputEl.focus(), 0);
+    if (!Platform.isMobileApp) window.setTimeout(() => this.inputEl.focus(), 0);
   }
 
   onClose(): void {
     this.closeButtonObserver?.disconnect();
     this.closeButtonObserver = undefined;
+    this.disposeViewport();
+    this.disposeViewport = () => undefined;
     this.renderGeneration += 1;
     this.previewGeneration += 1;
+    if (this.previewFrame !== undefined) window.cancelAnimationFrame(this.previewFrame);
+    this.previewFrame = undefined;
     this.renderer?.unload();
     this.renderer = undefined;
+    this.headingRows = [];
+    this.highlightedMatchIndexes.clear();
     this.headingRenderCache.clear();
     this.plugin.headingNavigatorClosed(this);
     this.contentEl.empty();
   }
 
-  private removeModalCloseButton(): void {
-    this.containerEl
-      .querySelectorAll<HTMLElement>(".modal-close-button, .modal-header-button")
-      .forEach((button) => button.remove());
+  private removeModalCloseButton(): boolean {
+    const closeButtons = this.containerEl.querySelectorAll<HTMLElement>(
+      ".modal-close-button, .modal-header-button",
+    );
+    closeButtons.forEach((button) => button.remove());
+    return closeButtons.length > 0;
   }
 
   private buildShell(): void {
@@ -151,6 +177,8 @@ export class HeadingNavigatorModal extends Modal {
         placeholder: "Search headings",
         autocomplete: "off",
         autocapitalize: "off",
+        inputmode: "search",
+        enterkeyhint: "search",
         spellcheck: "false",
         "aria-label": "Search headings",
       },
@@ -167,6 +195,8 @@ export class HeadingNavigatorModal extends Modal {
       cls: "heading-navigator-results",
       attr: { role: "listbox", "aria-label": `Headings in ${this.file.basename}` },
     });
+    this.resultsEl.addEventListener("pointerover", (event) => this.onHeadingPointerOver(event));
+    this.resultsEl.addEventListener("click", (event) => this.onHeadingClick(event));
     this.statusEl = this.contentEl.createDiv({
       cls: "heading-navigator-status",
       attr: { "aria-live": "polite", "aria-atomic": "true" },
@@ -214,7 +244,7 @@ export class HeadingNavigatorModal extends Modal {
     await this.renderHeadings(generation);
     if (generation !== this.renderGeneration) return;
     this.updateMatches();
-    this.updateSelectedRow(true, false);
+    this.selectHeading(this.selectedIndex, true, false);
   }
 
   private async renderHeadings(generation: number): Promise<void> {
@@ -223,6 +253,8 @@ export class HeadingNavigatorModal extends Modal {
     renderer.load();
     this.renderer = renderer;
     this.headingRenderCache.clear();
+    this.headingRows = [];
+    this.highlightedMatchIndexes.clear();
     this.resultsEl.empty();
 
     if (this.headings.length === 0) {
@@ -236,16 +268,24 @@ export class HeadingNavigatorModal extends Modal {
     await this.updateCurrentHeading(this.selectedIndex, generation);
     if (generation !== this.renderGeneration) return;
 
+    const batchSize = Platform.isMobileApp ? 12 : 24;
+    const frameBudget = Platform.isMobileApp ? 6 : 10;
+    let batchCount = 0;
+    let sliceStarted = performance.now();
+    let batch = createFragment();
     for (let index = 0; index < this.headings.length; index += 1) {
       if (generation !== this.renderGeneration) return;
       const heading = this.headings[index];
-      const row = this.resultsEl.createDiv({
+      const row = createDiv({
         cls: `heading-navigator-row is-level-${heading.level}`,
         attr: {
           role: "option",
+          tabindex: "-1",
           "aria-selected": index === this.selectedIndex ? "true" : "false",
         },
       });
+      row.dataset.headingIndex = String(index);
+      this.headingRows.push(row);
       row.createSpan({ cls: "heading-navigator-level", text: `H${heading.level}` });
       const body = row.createDiv({ cls: "heading-navigator-row-body" });
       const title = body.createDiv({ cls: "heading-navigator-title markdown-rendered" });
@@ -259,16 +299,19 @@ export class HeadingNavigatorModal extends Modal {
       );
       if (generation !== this.renderGeneration) return;
 
-      row.addEventListener("mouseenter", () => {
-        this.selectedIndex = index;
-        this.updateSelectedRow(false);
-      });
-      row.addEventListener("click", () => {
-        this.selectedIndex = index;
-        void this.jumpToSelected();
-      });
-      if (index > 0 && index % 24 === 0) {
+      batch.appendChild(row);
+      batchCount += 1;
+      const batchComplete =
+        batchCount >= batchSize || performance.now() - sliceStarted >= frameBudget;
+      const isLastHeading = index === this.headings.length - 1;
+      if (batchComplete || isLastHeading) {
+        this.resultsEl.appendChild(batch);
+        batch = createFragment();
+        batchCount = 0;
+      }
+      if (batchComplete && !isLastHeading) {
         await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+        sliceStarted = performance.now();
       }
     }
   }
@@ -327,17 +370,25 @@ export class HeadingNavigatorModal extends Modal {
 
   private updateMatches(): void {
     const query = this.inputEl.value.trim();
-    this.matchIndexes = matchingHeadingIndexes(this.headings, query);
-    this.matchCursor = -1;
     const terms = headingHighlightTerms(query);
-    const matches = new Set(this.matchIndexes);
-    const rows = Array.from(this.resultsEl.querySelectorAll<HTMLElement>(".heading-navigator-row"));
-    rows.forEach((row, index) => {
-      row.toggleClass("is-searching", terms.length > 0);
-      row.toggleClass("is-match", terms.length > 0 && matches.has(index));
-      const title = row.querySelector<HTMLElement>(".heading-navigator-title");
-      if (title) highlightTerms(title, matches.has(index) ? terms : []);
-    });
+    this.matchIndexes = matchingHeadingIndexes(this.headings, terms);
+    this.matchCursor = -1;
+    const nextHighlights = terms.length > 0 ? new Set(this.matchIndexes) : new Set<number>();
+    this.resultsEl.toggleClass("is-searching", terms.length > 0);
+    for (const index of this.highlightedMatchIndexes) {
+      if (nextHighlights.has(index)) continue;
+      const row = this.headingRows[index];
+      row?.removeClass("is-match");
+      const title = row?.querySelector<HTMLElement>(".heading-navigator-title");
+      if (title) clearHighlights(title);
+    }
+    for (const index of nextHighlights) {
+      const row = this.headingRows[index];
+      row?.addClass("is-match");
+      const title = row?.querySelector<HTMLElement>(".heading-navigator-title");
+      if (title) highlightTerms(title, terms);
+    }
+    this.highlightedMatchIndexes = nextHighlights;
     const count = query ? this.matchIndexes.length : this.headings.length;
     this.statusEl.setText(`${count} ${query ? "matching " : ""}heading${count === 1 ? "" : "s"}`);
   }
@@ -345,41 +396,81 @@ export class HeadingNavigatorModal extends Modal {
   private cycleMatches(): void {
     if (this.matchIndexes.length === 0) return;
     this.matchCursor = (this.matchCursor + 1) % this.matchIndexes.length;
-    this.selectedIndex = this.matchIndexes[this.matchCursor];
-    this.updateSelectedRow(true);
+    this.selectHeading(this.matchIndexes[this.matchCursor], true);
   }
 
   private moveSelection(direction: number): void {
     if (this.headings.length === 0) return;
-    this.selectedIndex =
-      (this.selectedIndex + direction + this.headings.length) % this.headings.length;
-    this.updateSelectedRow(true);
+    this.selectHeading(
+      (this.selectedIndex + direction + this.headings.length) % this.headings.length,
+      true,
+    );
   }
 
-  private updateSelectedRow(scroll: boolean, updatePreview = true): void {
-    const rows = Array.from(this.resultsEl.querySelectorAll<HTMLElement>(".heading-navigator-row"));
-    rows.forEach((row, index) => {
-      const selected = index === this.selectedIndex;
-      row.toggleClass("is-selected", selected);
-      row.setAttr("aria-selected", selected ? "true" : "false");
-      if (selected && scroll) row.scrollIntoView({ block: "nearest" });
+  private selectHeading(index: number, scroll: boolean, updatePreview = true): void {
+    if (index < 0 || index >= this.headings.length) return;
+    const previousRow = this.headingRows[this.selectedIndex];
+    if (previousRow && this.selectedIndex !== index) {
+      previousRow.removeClass("is-selected");
+      previousRow.setAttr("aria-selected", "false");
+    }
+    this.selectedIndex = index;
+    const selectedRow = this.headingRows[index];
+    if (selectedRow) {
+      selectedRow.addClass("is-selected");
+      selectedRow.setAttr("aria-selected", "true");
+      if (scroll) selectedRow.scrollIntoView({ block: "nearest" });
+    }
+    if (updatePreview) this.scheduleCurrentHeading(index);
+  }
+
+  private scheduleCurrentHeading(index: number): void {
+    if (this.previewFrame !== undefined) window.cancelAnimationFrame(this.previewFrame);
+    this.previewFrame = window.requestAnimationFrame(() => {
+      this.previewFrame = undefined;
+      void this.updateCurrentHeading(index);
     });
-    if (updatePreview) void this.updateCurrentHeading(this.selectedIndex);
+  }
+
+  private headingIndexFromEvent(event: Event): number | undefined {
+    const ElementClass = this.resultsEl.ownerDocument.defaultView?.Element;
+    if (!ElementClass || !(event.target instanceof ElementClass)) return undefined;
+    const row = event.target.closest<HTMLElement>(".heading-navigator-row");
+    if (!row || !this.resultsEl.contains(row)) return undefined;
+    const index = Number(row.dataset.headingIndex);
+    return Number.isInteger(index) ? index : undefined;
+  }
+
+  private onHeadingPointerOver(event: PointerEvent): void {
+    const index = this.headingIndexFromEvent(event);
+    if (index !== undefined && index !== this.selectedIndex) this.selectHeading(index, false);
+  }
+
+  private onHeadingClick(event: MouseEvent): void {
+    const index = this.headingIndexFromEvent(event);
+    if (index === undefined) return;
+    this.selectHeading(index, false, false);
+    void this.jumpToSelected();
   }
 
   private async jumpToSelected(): Promise<void> {
     const heading = this.headings[this.selectedIndex];
     if (!heading) return;
     this.close();
+    let view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (this.app.workspace.getActiveFile()?.path !== this.file.path) {
-      await this.app.workspace.getLeaf(false).openFile(this.file);
+      const leaf = this.app.workspace.getLeaf(false);
+      await leaf.openFile(this.file);
+      view =
+        leaf.view instanceof MarkdownView
+          ? leaf.view
+          : this.app.workspace.getActiveViewOfType(MarkdownView);
     }
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.editor) return;
     const line = Math.min(Math.max(heading.line, 0), view.editor.lineCount() - 1);
     const range = headingSelectionRange(line, view.editor.getLine(line));
     view.editor.setSelection(range.from, range.to);
     view.editor.scrollIntoView(range, true);
-    view.editor.focus();
+    if (!Platform.isMobileApp) view.editor.focus();
   }
 }

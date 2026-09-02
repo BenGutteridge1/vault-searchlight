@@ -739,7 +739,8 @@
   background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
 }
 
-.heading-navigator-row.is-searching:not(.is-match):not(.is-selected) {
+.heading-navigator-results.is-searching
+  .heading-navigator-row:not(.is-match):not(.is-selected) {
   opacity: 0.62;
 }
 
@@ -929,6 +930,194 @@
 
   .heading-navigator-results {
     max-height: calc(100vh - 84px);
+  }
+}
+
+/* Mobile uses the visual viewport supplied by mobile-layout.ts. Keeping these
+   rules behind the runtime class prevents any narrow desktop layout changes. */
+.modal-container.floating-search-container.is-beacon-mobile {
+  --beacon-edge-top: max(8px, env(safe-area-inset-top));
+  --beacon-edge-right: max(8px, env(safe-area-inset-right));
+  --beacon-edge-bottom: max(8px, env(safe-area-inset-bottom));
+  --beacon-edge-left: max(8px, env(safe-area-inset-left));
+  --beacon-content-height: max(
+    1px,
+    calc(
+      var(--beacon-viewport-height, 100dvh) - var(--beacon-edge-top) - var(--beacon-edge-bottom)
+    )
+  );
+  align-items: flex-start;
+  padding:
+    calc(var(--beacon-viewport-top, 0px) + var(--beacon-edge-top))
+    var(--beacon-edge-right)
+    var(--beacon-edge-bottom)
+    var(--beacon-edge-left);
+}
+
+.floating-search-container.is-beacon-mobile .floating-search-modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: var(--beacon-content-height);
+}
+
+.floating-search-container.is-beacon-mobile .floating-search-content {
+  position: relative;
+  min-height: 0;
+  max-height: var(--beacon-content-height);
+  isolation: isolate;
+}
+
+.floating-search-container.is-beacon-mobile .floating-search-toolbar {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 48px;
+  height: 48px;
+  min-height: 48px;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  border-radius: 15px;
+  background: var(--background-primary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.modal-container.floating-search-container.is-beacon-mobile
+  .floating-search-toolbar
+  > button.floating-search-select,
+.modal-container.floating-search-container.is-beacon-mobile
+  .floating-search-toolbar
+  > button.floating-search-icon-button {
+  width: 48px;
+  min-width: 48px;
+  height: 46px;
+  touch-action: manipulation;
+}
+
+.floating-search-container.is-beacon-mobile .floating-search-input-wrap,
+.modal-container.floating-search-container.is-beacon-mobile input.floating-search-input {
+  height: 46px;
+}
+
+.modal-container.floating-search-container.is-beacon-mobile input.floating-search-input {
+  font-size: 16px;
+  line-height: 46px;
+}
+
+.floating-search-container.is-beacon-mobile .floating-search-results {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: max(1px, calc(var(--beacon-content-height) - 56px));
+  margin-top: 8px;
+  background: var(--background-primary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.floating-search-container.is-beacon-mobile .floating-search-result {
+  min-height: 52px;
+  padding-block: 12px;
+  contain: layout paint;
+  touch-action: manipulation;
+}
+
+.modal-container.heading-navigator-container.is-beacon-mobile {
+  --beacon-edge-top: max(8px, env(safe-area-inset-top));
+  --beacon-edge-right: max(8px, env(safe-area-inset-right));
+  --beacon-edge-bottom: max(8px, env(safe-area-inset-bottom));
+  --beacon-edge-left: max(8px, env(safe-area-inset-left));
+  --beacon-content-height: max(
+    1px,
+    calc(
+      var(--beacon-viewport-height, 100dvh) - var(--beacon-edge-top) - var(--beacon-edge-bottom)
+    )
+  );
+  align-items: flex-start;
+  justify-content: center;
+  padding:
+    calc(var(--beacon-viewport-top, 0px) + var(--beacon-edge-top))
+    var(--beacon-edge-right)
+    var(--beacon-edge-bottom)
+    var(--beacon-edge-left);
+}
+
+.heading-navigator-container.is-beacon-mobile .heading-navigator-modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: var(--beacon-content-height);
+}
+
+.heading-navigator-container.is-beacon-mobile .heading-navigator-content {
+  position: relative;
+  min-height: 0;
+  max-height: var(--beacon-content-height);
+  isolation: isolate;
+}
+
+.heading-navigator-container.is-beacon-mobile .heading-navigator-toolbar {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 48px;
+  height: 48px;
+  min-height: 48px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  padding-inline: 14px;
+  border-radius: 15px;
+  background: var(--background-primary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.heading-navigator-container.is-beacon-mobile .heading-navigator-shortcut {
+  display: none;
+}
+
+.modal-container.heading-navigator-container.is-beacon-mobile input.heading-navigator-input {
+  height: 46px;
+  font-size: 16px;
+}
+
+.heading-navigator-container.is-beacon-mobile .heading-navigator-panel {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: max(1px, calc(var(--beacon-content-height) - 57px));
+  background: var(--background-primary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.heading-navigator-container.is-beacon-mobile .heading-navigator-results {
+  flex: 1 1 auto;
+  max-height: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.heading-navigator-container.is-beacon-mobile .heading-navigator-row {
+  min-height: 44px;
+  align-items: center;
+  padding-block: 8px;
+  contain: layout paint;
+  touch-action: manipulation;
+}
+
+@media (hover: none) {
+  .floating-search-container.is-beacon-mobile .floating-search-result:hover:not(.is-selected),
+  .heading-navigator-container.is-beacon-mobile .heading-navigator-row:hover:not(.is-selected),
+  .modal-container.floating-search-container.is-beacon-mobile
+    .floating-search-toolbar
+    > button.floating-search-select:hover:not(:active),
+  .modal-container.floating-search-container.is-beacon-mobile
+    .floating-search-toolbar
+    > button.floating-search-icon-button:hover:not(:active) {
+    background: transparent;
+  }
+
+  .floating-search-container.is-beacon-mobile .floating-search-result:active,
+  .heading-navigator-container.is-beacon-mobile .heading-navigator-row:active {
+    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
   }
 }
 

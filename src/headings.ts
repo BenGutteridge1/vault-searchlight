@@ -7,6 +7,7 @@ const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 export interface HeadingEntry {
   level: number;
   line: number;
+  lowerText: string;
   markdown: string;
   text: string;
   parents: string[];
@@ -39,15 +40,19 @@ export function headingHighlightTerms(query: string): string[] {
 export function headingMatchesQuery(heading: HeadingEntry, query: string): boolean {
   const terms = queryTerms(query);
   if (terms.length === 0) return true;
-  const target = heading.text.toLocaleLowerCase();
-  return terms.every((term) => target.includes(term));
+  return terms.every((term) => heading.lowerText.includes(term));
 }
 
-export function matchingHeadingIndexes(headings: HeadingEntry[], query: string): number[] {
-  if (!query.trim()) return headings.map((_, index) => index);
-  return headings.flatMap((heading, index) =>
-    headingMatchesQuery(heading, query) ? [index] : [],
-  );
+export function matchingHeadingIndexes(
+  headings: HeadingEntry[],
+  query: string | readonly string[],
+): number[] {
+  const terms = typeof query === "string" ? queryTerms(query) : query;
+  const matches: number[] = [];
+  for (let index = 0; index < headings.length; index += 1) {
+    if (terms.every((term) => headings[index].lowerText.includes(term))) matches.push(index);
+  }
+  return matches;
 }
 
 export function extractMarkdownHeadings(
@@ -78,11 +83,13 @@ export function extractMarkdownHeadings(
 
     const level = atx ? atx[1].length : setext?.[1].startsWith("=") ? 1 : 2;
     const markdown = (atx ? atx[2] : source.trim()).trim();
+    const text = plainHeadingText(markdown);
     const heading: HeadingEntry = {
       level,
       line,
+      lowerText: text.toLocaleLowerCase(),
       markdown,
-      text: plainHeadingText(markdown),
+      text,
       parents: hierarchy
         .slice(0, level - 1)
         .filter((parent): parent is HeadingEntry => parent !== undefined)

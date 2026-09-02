@@ -1,7 +1,7 @@
 {
   "id": "vault-searchlight",
   "name": "Beacon",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "minAppVersion": "1.13.7",
   "description": "Fast, theme-aware search and heading navigation for the current note or whole vault.",
   "author": "Ben Gutteridge",

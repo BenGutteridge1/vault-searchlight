@@ -4,6 +4,7 @@ import {
   PluginSettingTab,
 } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
+import type { TFile } from "obsidian";
 import { HeadingNavigatorModal } from "./heading-navigator";
 import { compilePathExclusions } from "./path-exclusions";
 import { SearchIndex } from "./search-index";
@@ -31,12 +32,16 @@ export default class FloatingSearchPlugin extends Plugin {
   private activeModal: FloatingSearchModal | undefined;
   private activeHeadingNavigator: HeadingNavigatorModal | undefined;
   private isExcludedPath = compilePathExclusions("");
+  private searchableFiles: TFile[] | undefined;
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.index = new SearchIndex(this.app.vault, this.app.metadataCache);
     this.index.start(this);
     this.addSettingTab(new FloatingSearchSettingTab(this.app, this));
+    this.registerEvent(this.app.vault.on("create", () => this.invalidateSearchableFiles()));
+    this.registerEvent(this.app.vault.on("delete", () => this.invalidateSearchableFiles()));
+    this.registerEvent(this.app.vault.on("rename", () => this.invalidateSearchableFiles()));
 
     this.addCommand({
       id: "open-current-file-search",
@@ -130,10 +135,18 @@ export default class FloatingSearchPlugin extends Plugin {
     return this.isExcludedPath(path);
   }
 
+  getSearchableMarkdownFiles(): TFile[] {
+    this.searchableFiles ??= this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => !this.isFileExcluded(file.path));
+    return this.searchableFiles;
+  }
+
   async updateSettings(patch: Partial<FloatingSearchSettings>): Promise<void> {
     this.settings = { ...this.settings, ...patch };
     if (patch.excludedFiles !== undefined) {
       this.isExcludedPath = compilePathExclusions(this.settings.excludedFiles);
+      this.invalidateSearchableFiles();
     }
     await this.saveData(this.settings);
   }
@@ -158,6 +171,11 @@ export default class FloatingSearchPlugin extends Plugin {
       resultLimit: loaded?.resultLimit ?? DEFAULT_SETTINGS.resultLimit,
     };
     this.isExcludedPath = compilePathExclusions(this.settings.excludedFiles);
+    this.invalidateSearchableFiles();
+  }
+
+  private invalidateSearchableFiles(): void {
+    this.searchableFiles = undefined;
   }
 
   private async cycleStoredSort(): Promise<void> {

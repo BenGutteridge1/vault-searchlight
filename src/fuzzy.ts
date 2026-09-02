@@ -1,6 +1,11 @@
 export function fuzzyScore(needle: string, haystack: string): number | undefined {
   const query = needle.toLocaleLowerCase();
   const text = haystack.toLocaleLowerCase();
+  return fuzzyScoreLowered(query, text);
+}
+
+/** Score strings that the caller has already normalized for repeated matching. */
+export function fuzzyScoreLowered(query: string, text: string): number | undefined {
   if (query.length === 0) return 0;
 
   let queryIndex = 0;

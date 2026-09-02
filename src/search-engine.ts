@@ -1,4 +1,4 @@
-import { fuzzyScore } from "./fuzzy";
+import { fuzzyScoreLowered } from "./fuzzy";
 import { isFrontmatterBoundary, isMarkdownHeadingLine } from "./markdown";
 import { exactPattern } from "./query";
 import type {
@@ -15,84 +15,177 @@ interface LineHit {
   score: number;
 }
 
+interface PreparedClause {
+  clause: QueryClause;
+  exactPattern?: RegExp;
+  lowerValue: string;
+  normalizedTag?: string;
+}
+
+interface SearchContext {
+  eligibleLines?: Uint32Array;
+  indexed: IndexedFile;
+  lowerTargets: string[];
+  options: SearchContentOptions;
+  sectionCache: Map<string[], { lower: string; text: string }>;
+  targets: string[];
+}
+
+const preparedQueries = new WeakMap<ParsedQuery, PreparedClause[][]>();
+const eligibleLineCaches = new WeakMap<IndexedFile, Map<string, Uint32Array>>();
+const sectionCaches = new WeakMap<IndexedFile, Map<string[], { lower: string; text: string }>>();
+const fileTargetCaches = new WeakMap<
+  IndexedFile,
+  { basename: string; lowerBasename: string; lowerPath: string; path: string; tags?: string }
+>();
+
+function caseSensitiveExactPattern(value: string): RegExp {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const word = /^[\p{L}\p{N}_-]+$/u.test(value);
+  return word
+    ? new RegExp(`(^|[^\\p{L}\\p{N}_])(${escaped})(?=$|[^\\p{L}\\p{N}_])`, "u")
+    : new RegExp(escaped, "u");
+}
+
+function prepareClause(clause: QueryClause): PreparedClause {
+  return {
+    clause,
+    exactPattern:
+      clause.exact && !clause.regex
+        ? clause.caseSensitive === true
+          ? caseSensitiveExactPattern(clause.value)
+          : exactPattern(clause.value)
+        : undefined,
+    lowerValue: clause.value.toLocaleLowerCase(),
+    normalizedTag:
+      clause.kind === "tag" && !clause.regex
+        ? (clause.value.startsWith("#") ? clause.value : `#${clause.value}`).toLocaleLowerCase()
+        : undefined,
+  };
+}
+
+function prepareQuery(query: ParsedQuery): PreparedClause[][] {
+  let prepared = preparedQueries.get(query);
+  if (!prepared) {
+    prepared = query.groups.map((group) => group.map(prepareClause));
+    preparedQueries.set(query, prepared);
+  }
+  return prepared;
+}
+
+function getEligibleLines(context: SearchContext): Uint32Array {
+  if (context.eligibleLines !== undefined) return context.eligibleLines;
+  const cacheKey = `${context.options.mode}:${context.options.excludeHeadingMatches ? 1 : 0}:${context.options.excludeExcalidrawData ? 1 : 0}`;
+  let cache = eligibleLineCaches.get(context.indexed);
+  const cached = cache?.get(cacheKey);
+  if (cached) {
+    context.eligibleLines = cached;
+    return cached;
+  }
+  const eligibleLines: number[] = [];
+  for (let line = 0; line < context.indexed.lines.length; line += 1) {
+    if (!isSearchExcludedLine(context.indexed, line, context.options)) eligibleLines.push(line);
+  }
+  const compactLines = Uint32Array.from(eligibleLines);
+  if (!cache) {
+    cache = new Map();
+    eligibleLineCaches.set(context.indexed, cache);
+  }
+  cache.set(cacheKey, compactLines);
+  context.eligibleLines = compactLines;
+  return compactLines;
+}
+
 function regexMatches(regex: RegExp, target: string): boolean {
   regex.lastIndex = 0;
   return regex.test(target);
 }
 
 function textMatch(
-  clause: QueryClause,
+  prepared: PreparedClause,
   target: string,
   lowerTarget: string,
   fuzzy: boolean,
 ): number | undefined {
+  const { clause } = prepared;
   if (clause.regex) return regexMatches(clause.regex, target) ? 118 : undefined;
   const caseSensitive = clause.caseSensitive === true;
   if (clause.exact) {
-    if (!caseSensitive) return exactPattern(clause.value).test(target) ? 120 : undefined;
-    const escaped = clause.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const word = /^[\p{L}\p{N}_-]+$/u.test(clause.value);
-    const pattern = word
-      ? new RegExp(`(^|[^\\p{L}\\p{N}_])(${escaped})(?=$|[^\\p{L}\\p{N}_])`, "u")
-      : new RegExp(escaped, "u");
-    return pattern.test(target) ? 120 : undefined;
+    return prepared.exactPattern?.test(target) ? 120 : undefined;
   }
-  const needle = caseSensitive ? clause.value : clause.value.toLocaleLowerCase();
+  const needle = caseSensitive ? clause.value : prepared.lowerValue;
   const haystack = caseSensitive ? target : lowerTarget;
   const index = haystack.indexOf(needle);
   if (index >= 0) return 95 - Math.min(index * 0.1, 20);
   if (!fuzzy || clause.value.length < 3 || caseSensitive) return undefined;
-  return fuzzyScore(clause.value, target);
+  return fuzzyScoreLowered(prepared.lowerValue, lowerTarget);
 }
 
-function fileTarget(clause: QueryClause, indexed: IndexedFile): string | undefined {
+function fileTargets(indexed: IndexedFile): {
+  basename: string;
+  lowerBasename: string;
+  lowerPath: string;
+  path: string;
+  tags?: string;
+} {
+  let targets = fileTargetCaches.get(indexed);
+  if (!targets) {
+    targets = {
+      basename: indexed.file.basename,
+      lowerBasename: indexed.file.basename.toLocaleLowerCase(),
+      lowerPath: indexed.file.path.toLocaleLowerCase(),
+      path: indexed.file.path,
+    };
+    fileTargetCaches.set(indexed, targets);
+  }
+  return targets;
+}
+
+function fileTarget(
+  clause: QueryClause,
+  indexed: IndexedFile,
+): { lower: string; text: string } | undefined {
+  const targets = fileTargets(indexed);
   switch (clause.kind) {
     case "path":
-      return indexed.file.path;
+      return { lower: targets.lowerPath, text: targets.path };
     case "file":
-      return indexed.file.basename;
+      return { lower: targets.lowerBasename, text: targets.basename };
     case "tag":
-      return [...indexed.tags].join(" ");
+      targets.tags ??= [...indexed.tags].join(" ");
+      return { lower: targets.tags, text: targets.tags };
     default:
       return undefined;
   }
 }
 
 function fileClauseScore(
-  clause: QueryClause,
+  prepared: PreparedClause,
   indexed: IndexedFile,
   options: SearchContentOptions,
 ): number | undefined {
+  const { clause } = prepared;
   if (clause.kind === "tag" && options.mode !== "tags") return undefined;
+  if (clause.kind === "tag" && !clause.regex) {
+    return prepared.normalizedTag !== undefined && indexed.tags.has(prepared.normalizedTag)
+      ? 105
+      : undefined;
+  }
   const target = fileTarget(clause, indexed);
   if (target === undefined) return undefined;
-  if (clause.kind === "tag" && !clause.regex) {
-    const normalized = clause.value.startsWith("#") ? clause.value : `#${clause.value}`;
-    return indexed.tags.has(normalized.toLocaleLowerCase()) ? 105 : undefined;
-  }
-  return textMatch(clause, target, target.toLocaleLowerCase(), false);
+  return textMatch(prepared, target.text, target.lower, false);
 }
 
 function lineClauseScore(
-  clause: QueryClause,
-  indexed: IndexedFile,
+  prepared: PreparedClause,
+  context: SearchContext,
   line: number,
   fuzzy: boolean,
-  options: SearchContentOptions,
 ): number | undefined {
-  if (isSearchExcludedLine(indexed, line, options)) return undefined;
-  const target =
-    options.mode === "tags"
-      ? indexed.tagSearchLines[line] ?? ""
-      : options.mode === "properties"
-        ? indexed.lines[line] ?? ""
-        : indexed.linesWithoutTags[line] ?? "";
-  const lowerTarget =
-    options.mode === "tags"
-      ? indexed.lowerTagSearchLines[line] ?? target.toLocaleLowerCase()
-      : options.mode === "properties"
-        ? indexed.lowerLines[line] ?? target.toLocaleLowerCase()
-        : indexed.lowerLinesWithoutTags[line] ?? target.toLocaleLowerCase();
+  const { clause } = prepared;
+  const { indexed, targets, lowerTargets } = context;
+  const target = targets[line] ?? "";
+  const lowerTarget = lowerTargets[line] ?? "";
   if (clause.kind.startsWith("task")) {
     const task = target.match(TASK_PATTERN);
     if (!task) return undefined;
@@ -101,11 +194,17 @@ function lineClauseScore(
     if (clause.value === "*") return 108;
   }
   if (clause.kind === "section") {
-    const hierarchy = indexed.headingsByLine[line].join(" › ");
-    return textMatch(clause, hierarchy, hierarchy.toLocaleLowerCase(), false);
+    const hierarchy = indexed.headingsByLine[line];
+    let section = context.sectionCache.get(hierarchy);
+    if (!section) {
+      const text = hierarchy.join(" › ");
+      section = { lower: text.toLocaleLowerCase(), text };
+      context.sectionCache.set(hierarchy, section);
+    }
+    return textMatch(prepared, section.text, section.lower, false);
   }
   return textMatch(
-    clause,
+    prepared,
     target,
     lowerTarget,
     clause.kind === "text" && fuzzy,
@@ -127,16 +226,39 @@ export function searchIndexedFile(
   fuzzy: boolean,
   options: SearchContentOptions,
 ): LineHit[] {
+  const targets =
+    options.mode === "tags"
+      ? indexed.tagSearchLines
+      : options.mode === "properties"
+        ? indexed.lines
+        : indexed.linesWithoutTags;
+  const lowerTargets =
+    options.mode === "tags"
+      ? indexed.lowerTagSearchLines
+      : options.mode === "properties"
+        ? indexed.lowerLines
+        : indexed.lowerLinesWithoutTags;
+  const context: SearchContext = {
+    indexed,
+    lowerTargets,
+    options,
+    sectionCache:
+      sectionCaches.get(indexed) ?? new Map<string[], { lower: string; text: string }>(),
+    targets,
+  };
+  if (!sectionCaches.has(indexed)) sectionCaches.set(indexed, context.sectionCache);
   const hits = new Map<number, number>();
+  const preparedGroups = prepareQuery(query);
 
-  for (const group of query.groups) {
+  for (const group of preparedGroups) {
     let groupMatched = true;
     let filterScore = 0;
     const groupLineScores = new Map<number, number>();
 
-    for (const clause of group) {
+    for (const prepared of group) {
+      const { clause } = prepared;
       if (isFileClause(clause)) {
-        const score = fileClauseScore(clause, indexed, options);
+        const score = fileClauseScore(prepared, indexed, options);
         const matched = score !== undefined;
         if ((clause.negative && matched) || (!clause.negative && !matched)) {
           groupMatched = false;
@@ -146,28 +268,23 @@ export function searchIndexedFile(
         continue;
       }
 
-      const clauseHits = new Map<number, number>();
-      for (let line = 0; line < indexed.lines.length; line += 1) {
-        const score = lineClauseScore(clause, indexed, line, fuzzy, options);
-        if (score !== undefined) clauseHits.set(line, score);
+      let matched = false;
+      for (const line of getEligibleLines(context)) {
+        const score = lineClauseScore(prepared, context, line, fuzzy);
+        if (score === undefined) continue;
+        matched = true;
+        if (clause.negative) break;
+        groupLineScores.set(line, (groupLineScores.get(line) ?? 0) + score);
       }
-      const matched = clauseHits.size > 0;
       if ((clause.negative && matched) || (!clause.negative && !matched)) {
         groupMatched = false;
         break;
-      }
-      if (!clause.negative) {
-        for (const [line, score] of clauseHits) {
-          groupLineScores.set(line, (groupLineScores.get(line) ?? 0) + score);
-        }
       }
     }
 
     if (!groupMatched) continue;
     if (groupLineScores.size === 0) {
-      const firstVisibleLine = indexed.lines.findIndex(
-        (_, line) => !isSearchExcludedLine(indexed, line, options),
-      );
+      const firstVisibleLine = getEligibleLines(context)[0] ?? -1;
       if (firstVisibleLine >= 0) groupLineScores.set(firstVisibleLine, 0);
     }
     for (const [line, score] of groupLineScores) {

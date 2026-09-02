@@ -24,8 +24,6 @@ export interface FloatingSearchSettings {
 
 export interface IndexedFile {
   file: TFile;
-  content: string;
-  lowerContent: string;
   lines: string[];
   lowerLines: string[];
   linesWithoutTags: string[];

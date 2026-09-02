@@ -64,22 +64,17 @@ export function linesWithoutSearchableTags(
   lines: string[],
   frontmatterLines: Set<number>,
 ): string[] {
-  let inTagProperty = false;
-  return lines.map((source, line) => {
-    if (frontmatterLines.has(line)) {
-      const property = source.match(PROPERTY_KEY_PATTERN);
-      if (property) inTagProperty = /^tags?$/i.test(property[1]);
-      if (inTagProperty || FRONTMATTER_BOUNDARY.test(source)) return "";
-    } else {
-      inTagProperty = false;
-    }
-    return source.replace(INLINE_TAG_PATTERN, "$1");
-  });
+  return buildSearchLines(lines, frontmatterLines).linesWithoutTags;
 }
 
 export interface TagSearchLines {
   lines: string[];
   lineIndexes: Set<number>;
+}
+
+export interface SearchLines {
+  linesWithoutTags: string[];
+  tagSearch: TagSearchLines;
 }
 
 function cleanTagValues(value: string): string {
@@ -90,6 +85,15 @@ export function buildTagSearchLines(
   lines: string[],
   frontmatterLines: Set<number>,
 ): TagSearchLines {
+  return buildSearchLines(lines, frontmatterLines).tagSearch;
+}
+
+/** Build ordinary-content and tag-only views in one pass for indexing. */
+export function buildSearchLines(
+  lines: string[],
+  frontmatterLines: Set<number>,
+): SearchLines {
+  const linesWithoutTags = lines.slice();
   const searchable = lines.map(() => "");
   const lineIndexes = new Set<number>();
   let inTagProperty = false;
@@ -99,29 +103,44 @@ export function buildTagSearchLines(
     if (frontmatterLines.has(line)) {
       if (FRONTMATTER_BOUNDARY.test(source)) {
         inTagProperty = false;
+        linesWithoutTags[line] = "";
         continue;
       }
       const property = source.match(PROPERTY_KEY_PATTERN);
       if (property) {
         inTagProperty = /^tags?$/i.test(property[1]);
         if (inTagProperty) {
+          linesWithoutTags[line] = "";
           searchable[line] = cleanTagValues(source.slice(source.indexOf(":") + 1));
           lineIndexes.add(line);
         }
         continue;
       }
       if (inTagProperty) {
+        linesWithoutTags[line] = "";
         searchable[line] = cleanTagValues(source);
         lineIndexes.add(line);
       }
       continue;
     }
 
-    const tags = [...source.matchAll(INLINE_TAG_PATTERN)].map((match) => match[0].trim());
-    if (tags.length > 0) {
+    inTagProperty = false;
+    if (!source.includes("#")) continue;
+    linesWithoutTags[line] = source.replace(INLINE_TAG_PATTERN, "$1");
+    INLINE_TAG_PATTERN.lastIndex = 0;
+    let match = INLINE_TAG_PATTERN.exec(source);
+    if (match) {
+      const tags: string[] = [];
+      while (match) {
+        tags.push(match[0].trim());
+        match = INLINE_TAG_PATTERN.exec(source);
+      }
       searchable[line] = tags.join(" ");
       lineIndexes.add(line);
     }
   }
-  return { lines: searchable, lineIndexes };
+  return {
+    linesWithoutTags,
+    tagSearch: { lines: searchable, lineIndexes },
+  };
 }

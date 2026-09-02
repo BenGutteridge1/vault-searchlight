@@ -6,10 +6,12 @@ import {
   Menu,
   Modal,
   Notice,
+  Platform,
   setIcon,
   TFile,
 } from "obsidian";
-import { findMatchRange } from "./editor-highlight";
+import { findMatchRanges } from "./editor-highlight";
+import { installResponsiveViewport } from "./mobile-layout";
 import { parseQuery } from "./query";
 import type FloatingSearchPlugin from "./main";
 import type { HighlightTerm, SearchResult, SearchScope, SortMode } from "./types";
@@ -61,9 +63,34 @@ function isWordCharacter(character: string | undefined): boolean {
   return character !== undefined && /[\p{L}\p{N}_]/u.test(character);
 }
 
+interface PreparedHighlightTerm {
+  caseSensitive: boolean;
+  exact: boolean;
+  lowerValue: string;
+  regex?: RegExp;
+  value: string;
+  wholeWord: boolean;
+}
+
+function prepareHighlightTerms(terms: HighlightTerm[]): PreparedHighlightTerm[] {
+  return terms.map((term) => {
+    const flags = term.regex
+      ? [...new Set(`${term.regex.flags.replace(/[gy]/g, "")}g`)].join("")
+      : undefined;
+    return {
+      caseSensitive: term.caseSensitive,
+      exact: term.exact,
+      lowerValue: term.value.toLocaleLowerCase(),
+      regex: term.regex ? new RegExp(term.regex.source, flags) : undefined,
+      value: term.value,
+      wholeWord: term.exact && /^[\p{L}\p{N}_-]+$/u.test(term.value),
+    };
+  });
+}
+
 function markTextMatches(
   root: HTMLElement,
-  terms: HighlightTerm[],
+  terms: PreparedHighlightTerm[],
   fuzzy: boolean,
   includeTags = false,
 ): void {
@@ -86,8 +113,8 @@ function markTextMatches(
 
     for (const termSpec of terms) {
       if (termSpec.regex) {
-        const flags = [...new Set(`${termSpec.regex.flags.replace(/[gy]/g, "")}g`)].join("");
-        const regex = new RegExp(termSpec.regex.source, flags);
+        const regex = termSpec.regex;
+        regex.lastIndex = 0;
         let match = regex.exec(text);
         while (match) {
           if (match[0].length > 0) ranges.push([match.index, match.index + match[0].length]);
@@ -98,16 +125,15 @@ function markTextMatches(
       }
 
       const rawTerm = termSpec.value;
-      const term = termSpec.caseSensitive ? rawTerm : rawTerm.toLocaleLowerCase();
+      const term = termSpec.caseSensitive ? rawTerm : termSpec.lowerValue;
       const source = termSpec.caseSensitive ? text : lower;
-      const wholeWord = termSpec.exact && /^[\p{L}\p{N}_-]+$/u.test(rawTerm);
       let from = 0;
       let index = source.indexOf(term, from);
       let foundLiteral = false;
       while (index >= 0 && term.length > 0) {
         const end = index + term.length;
         const onBoundary =
-          !wholeWord ||
+          !termSpec.wholeWord ||
           (!isWordCharacter(text[index - 1]) && !isWordCharacter(text[end]));
         if (onBoundary) {
           ranges.push([index, end]);
@@ -120,7 +146,7 @@ function markTextMatches(
       if (fuzzy && !foundLiteral && !termSpec.exact && !termSpec.caseSensitive) {
         let textIndex = 0;
         const fuzzyIndexes: number[] = [];
-        for (const character of term.toLocaleLowerCase()) {
+        for (const character of termSpec.lowerValue) {
           const found = lower.indexOf(character, textIndex);
           if (found < 0) {
             fuzzyIndexes.length = 0;
@@ -186,7 +212,9 @@ export class FloatingSearchModal extends Modal {
   private searchTimer: number | undefined;
   private renderGeneration = 0;
   private resultRenderer: Component | undefined;
+  private resultRows: HTMLElement[] = [];
   private closeButtonObserver: MutationObserver | undefined;
+  private disposeViewport = (): void => undefined;
 
   private inputEl!: HTMLInputElement;
   private scopeButton!: HTMLButtonElement;
@@ -207,15 +235,29 @@ export class FloatingSearchModal extends Modal {
     this.containerEl.addClass("floating-search-container");
     this.modalEl.addClass("floating-search-modal");
     this.contentEl.addClass("floating-search-content");
+    this.disposeViewport = installResponsiveViewport(this.containerEl, Platform.isMobileApp);
     this.titleEl.hide();
-    this.removeModalCloseButton();
-    this.closeButtonObserver = new MutationObserver(() => this.removeModalCloseButton());
-    this.closeButtonObserver.observe(this.containerEl, { childList: true, subtree: true });
+    if (!this.removeModalCloseButton()) {
+      this.closeButtonObserver = new MutationObserver(() => {
+        if (this.removeModalCloseButton()) {
+          this.closeButtonObserver?.disconnect();
+          this.closeButtonObserver = undefined;
+        }
+      });
+      this.closeButtonObserver.observe(this.containerEl, { childList: true, subtree: true });
+      window.setTimeout(() => {
+        this.removeModalCloseButton();
+        this.closeButtonObserver?.disconnect();
+        this.closeButtonObserver = undefined;
+      }, 0);
+    }
     this.buildToolbar();
     this.resultsEl = this.contentEl.createDiv({
       cls: "floating-search-results is-hidden",
       attr: { role: "listbox", "aria-label": "Search results" },
     });
+    this.resultsEl.addEventListener("pointerover", (event) => this.onResultPointerOver(event));
+    this.resultsEl.addEventListener("click", (event) => this.onResultClick(event));
     this.statusEl = this.contentEl.createDiv({
       cls: "floating-search-status",
       text: "Type to search",
@@ -229,27 +271,23 @@ export class FloatingSearchModal extends Modal {
   onClose(): void {
     this.closeButtonObserver?.disconnect();
     this.closeButtonObserver = undefined;
+    this.disposeViewport();
+    this.disposeViewport = () => undefined;
     if (this.searchTimer) window.clearTimeout(this.searchTimer);
     this.renderGeneration += 1;
+    this.plugin.index.cancelPendingSearch();
     this.plugin.modalClosed(this);
     this.disposeResultRenderer();
+    this.resultRows = [];
     this.contentEl.empty();
   }
 
-  private removeModalCloseButton(): void {
-    document
-      .querySelectorAll<HTMLElement>(".modal-close-button, .modal-header-button")
-      .forEach((closeButton) => {
-        const closeButtonModal = closeButton.closest(".modal");
-        const sharesContainer = closeButton.parentElement?.contains(this.modalEl) ?? false;
-        if (
-          closeButtonModal === this.modalEl ||
-          this.containerEl.contains(closeButton) ||
-          sharesContainer
-        ) {
-          closeButton.remove();
-        }
-      });
+  private removeModalCloseButton(): boolean {
+    const closeButtons = this.containerEl.querySelectorAll<HTMLElement>(
+      ".modal-close-button, .modal-header-button",
+    );
+    closeButtons.forEach((closeButton) => closeButton.remove());
+    return closeButtons.length > 0;
   }
 
   private buildToolbar(): void {
@@ -272,6 +310,8 @@ export class FloatingSearchModal extends Modal {
         placeholder: "Search…",
         autocomplete: "off",
         autocapitalize: "off",
+        inputmode: "search",
+        enterkeyhint: "search",
         spellcheck: "false",
         "aria-label": "Search term",
       },
@@ -323,19 +363,46 @@ export class FloatingSearchModal extends Modal {
 
   private moveSelection(direction: number): void {
     if (this.results.length === 0) return;
-    this.selectedIndex =
-      (this.selectedIndex + direction + this.results.length) % this.results.length;
-    this.updateSelectedRow(true);
+    this.selectResult(
+      (this.selectedIndex + direction + this.results.length) % this.results.length,
+      true,
+    );
   }
 
-  private updateSelectedRow(scroll: boolean): void {
-    const rows = Array.from(this.resultsEl.querySelectorAll<HTMLElement>(".floating-search-result"));
-    rows.forEach((row, index) => {
-      const selected = index === this.selectedIndex;
-      row.toggleClass("is-selected", selected);
-      row.setAttr("aria-selected", selected ? "true" : "false");
-      if (selected && scroll) row.scrollIntoView({ block: "nearest" });
-    });
+  private selectResult(index: number, scroll: boolean): void {
+    if (index < 0 || index >= this.results.length) return;
+    const previousRow = this.resultRows[this.selectedIndex];
+    if (previousRow && this.selectedIndex !== index) {
+      previousRow.removeClass("is-selected");
+      previousRow.setAttr("aria-selected", "false");
+    }
+    this.selectedIndex = index;
+    const selectedRow = this.resultRows[index];
+    if (!selectedRow) return;
+    selectedRow.addClass("is-selected");
+    selectedRow.setAttr("aria-selected", "true");
+    if (scroll) selectedRow.scrollIntoView({ block: "nearest" });
+  }
+
+  private resultIndexFromEvent(event: Event): number | undefined {
+    const ElementClass = this.resultsEl.ownerDocument.defaultView?.Element;
+    if (!ElementClass || !(event.target instanceof ElementClass)) return undefined;
+    const row = event.target.closest<HTMLElement>(".floating-search-result");
+    if (!row || !this.resultsEl.contains(row)) return undefined;
+    const index = Number(row.dataset.resultIndex);
+    return Number.isInteger(index) ? index : undefined;
+  }
+
+  private onResultPointerOver(event: PointerEvent): void {
+    const index = this.resultIndexFromEvent(event);
+    if (index !== undefined && index !== this.selectedIndex) this.selectResult(index, false);
+  }
+
+  private onResultClick(event: MouseEvent): void {
+    const index = this.resultIndexFromEvent(event);
+    if (index === undefined) return;
+    this.selectResult(index, false);
+    void this.openSelected();
   }
 
   private showScopeMenu(event: MouseEvent): void {
@@ -365,7 +432,7 @@ export class FloatingSearchModal extends Modal {
         .setIcon("tags")
         .onClick(() => void this.setScope("tags")),
     );
-    menu.showAtMouseEvent(event);
+    this.showControlMenu(menu, this.scopeButton, event);
   }
 
   private showSortMenu(event: MouseEvent): void {
@@ -378,7 +445,23 @@ export class FloatingSearchModal extends Modal {
           .onClick(() => void this.setSort(sort)),
       );
     }
-    menu.showAtMouseEvent(event);
+    this.showControlMenu(menu, this.sortButton, event);
+  }
+
+  private showControlMenu(menu: Menu, control: HTMLElement, event: MouseEvent): void {
+    if (!Platform.isMobileApp) {
+      menu.showAtMouseEvent(event);
+      return;
+    }
+
+    const bounds = control.getBoundingClientRect();
+    menu.showAtPosition(
+      {
+        x: Math.round(bounds.left),
+        y: Math.round(bounds.bottom + 4),
+      },
+      control.ownerDocument,
+    );
   }
 
   private updateScopeButton(): void {
@@ -403,10 +486,12 @@ export class FloatingSearchModal extends Modal {
   async setScope(scope: SearchScope): Promise<void> {
     this.scopeMode = scope;
     this.updateScopeButton();
-    if (scope === "file" || scope === "vault") {
-      await this.plugin.updateSettings({ defaultScope: scope });
-    }
+    const settingsUpdate =
+      scope === "file" || scope === "vault"
+        ? this.plugin.updateSettings({ defaultScope: scope })
+        : Promise.resolve();
     await this.runSearch();
+    await settingsUpdate;
     this.inputEl.focus();
   }
 
@@ -415,9 +500,10 @@ export class FloatingSearchModal extends Modal {
   }
 
   async setSort(sort: SortMode): Promise<void> {
-    await this.plugin.updateSettings({ sort });
+    const settingsUpdate = this.plugin.updateSettings({ sort });
     this.updateSortButton();
     await this.runSearch();
+    await settingsUpdate;
     this.inputEl.focus();
   }
 
@@ -428,16 +514,19 @@ export class FloatingSearchModal extends Modal {
 
   private queueSearch(): void {
     if (this.searchTimer) window.clearTimeout(this.searchTimer);
+    this.renderGeneration += 1;
+    this.plugin.index.cancelPendingSearch();
     this.searchTimer = window.setTimeout(() => void this.runSearch(), 70);
   }
 
   private async runSearch(): Promise<void> {
     if (this.searchTimer) window.clearTimeout(this.searchTimer);
+    this.searchTimer = undefined;
     const renderGeneration = ++this.renderGeneration;
     const trimmed = this.query.trim();
     if (!trimmed) {
       this.results = [];
-      this.resultsEl.empty();
+      this.clearRenderedResults();
       this.resultsEl.addClass("is-hidden");
       this.statusEl.setText("Type to search");
       return;
@@ -447,12 +536,18 @@ export class FloatingSearchModal extends Modal {
     const parsed = parseQuery(trimmed);
     if (parsed.error) {
       this.results = [];
-      this.resultsEl.empty();
+      this.clearRenderedResults();
       this.resultsEl.createDiv({ cls: "floating-search-empty is-error", text: parsed.error });
       this.statusEl.setText("Invalid query");
       return;
     }
-    if (parsed.groups.length === 0) return;
+    if (parsed.groups.length === 0) {
+      this.results = [];
+      this.clearRenderedResults();
+      this.resultsEl.addClass("is-hidden");
+      this.statusEl.setText("Type to search");
+      return;
+    }
 
     const files = this.filesForScope();
     if (files.length === 0) {
@@ -463,7 +558,7 @@ export class FloatingSearchModal extends Modal {
         activeMarkdownFile &&
         this.plugin.isFileExcluded(activeFile.path);
       this.results = [];
-      this.resultsEl.empty();
+      this.clearRenderedResults();
       this.resultsEl.createDiv({
         cls: "floating-search-empty",
         text: activeFileExcluded
@@ -506,9 +601,7 @@ export class FloatingSearchModal extends Modal {
 
   private filesForScope(): TFile[] {
     if (this.scopeMode !== "file") {
-      return this.app.vault
-        .getMarkdownFiles()
-        .filter((file) => !this.plugin.isFileExcluded(file.path));
+      return this.plugin.getSearchableMarkdownFiles();
     }
     const active = this.app.workspace.getActiveFile();
     return active?.extension === "md" && !this.plugin.isFileExcluded(active.path)
@@ -523,6 +616,8 @@ export class FloatingSearchModal extends Modal {
     renderer.load();
     this.resultRenderer = renderer;
     const headingRenderCache = new Map<string, HTMLElement>();
+    const highlightTerms = prepareHighlightTerms(this.results[0]?.matchTerms ?? []);
+    this.resultRows = [];
     this.resultsEl.removeClass("is-hidden");
     this.resultsEl.empty();
     if (this.results.length === 0) {
@@ -531,13 +626,24 @@ export class FloatingSearchModal extends Modal {
       return;
     }
 
+    const batchSize = Platform.isMobileApp ? 6 : 12;
+    const frameBudget = Platform.isMobileApp ? 6 : 10;
+    let batchCount = 0;
+    let sliceStarted = performance.now();
+    let batch = createFragment();
     for (let index = 0; index < this.results.length; index += 1) {
       if (generation !== this.renderGeneration) return;
       const result = this.results[index];
-      const row = this.resultsEl.createDiv({
+      const row = createDiv({
         cls: `floating-search-result${index === this.selectedIndex ? " is-selected" : ""}`,
-        attr: { role: "option", "aria-selected": index === this.selectedIndex ? "true" : "false" },
+        attr: {
+          role: "option",
+          tabindex: "-1",
+          "aria-selected": index === this.selectedIndex ? "true" : "false",
+        },
       });
+      row.dataset.resultIndex = String(index);
+      this.resultRows.push(row);
       const fileIcon = row.createSpan({ cls: "floating-search-result-icon" });
       setIcon(fileIcon, "file-text");
       const content = row.createDiv({ cls: "floating-search-result-content" });
@@ -558,7 +664,7 @@ export class FloatingSearchModal extends Modal {
           headingRenderCache,
         );
         if (generation !== this.renderGeneration) return;
-        markTextMatches(headingEl, result.matchTerms, this.plugin.settings.fuzzy);
+        markTextMatches(headingEl, highlightTerms, this.plugin.settings.fuzzy);
       }
       const excerpt = content.createDiv({ cls: "floating-search-excerpt markdown-rendered" });
       await MarkdownRenderer.render(
@@ -571,23 +677,26 @@ export class FloatingSearchModal extends Modal {
       if (generation !== this.renderGeneration) return;
       markTextMatches(
         excerpt,
-        result.matchTerms,
+        highlightTerms,
         this.plugin.settings.fuzzy,
         this.scopeMode === "tags",
       );
       const openIcon = row.createSpan({ cls: "floating-search-open-icon" });
       setIcon(openIcon, "arrow-up-right");
 
-      row.addEventListener("mouseenter", () => {
-        this.selectedIndex = index;
-        this.updateSelectedRow(false);
-      });
-      row.addEventListener("click", () => {
-        this.selectedIndex = index;
-        void this.openSelected();
-      });
-      if (index > 0 && index % 12 === 0) {
+      batch.appendChild(row);
+      batchCount += 1;
+      const batchComplete =
+        batchCount >= batchSize || performance.now() - sliceStarted >= frameBudget;
+      const isLastResult = index === this.results.length - 1;
+      if (batchComplete || isLastResult) {
+        this.resultsEl.appendChild(batch);
+        batch = createFragment();
+        batchCount = 0;
+      }
+      if (batchComplete && !isLastResult) {
         await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+        sliceStarted = performance.now();
       }
     }
     const capped = this.results.length >= this.plugin.settings.resultLimit;
@@ -599,25 +708,55 @@ export class FloatingSearchModal extends Modal {
     this.resultRenderer = undefined;
   }
 
+  private clearRenderedResults(): void {
+    this.disposeResultRenderer();
+    this.resultRows = [];
+    this.resultsEl.empty();
+  }
+
   private async openSelected(): Promise<void> {
     const result = this.results[this.selectedIndex];
     if (!result) return;
     this.close();
-    await this.app.workspace.getLeaf(false).openFile(result.file);
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(result.file);
+    const view =
+      leaf.view instanceof MarkdownView
+        ? leaf.view
+        : this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.editor) return;
     const lastLine = Math.max(0, view.editor.lineCount() - 1);
     const line = Math.min(result.line, lastLine);
     const lineText = view.editor.getLine(line);
-    const match = findMatchRange(lineText, result.matchTerms, this.plugin.settings.fuzzy);
-    const from = { line, ch: match?.from ?? 0 };
+    const matches = findMatchRanges(
+      lineText,
+      result.matchTerms,
+      this.plugin.settings.fuzzy,
+    );
     const fallbackEndLine = Math.min(result.endLine, lastLine);
-    const to = match
-      ? { line, ch: match.to }
-      : { line: fallbackEndLine, ch: view.editor.getLine(fallbackEndLine).length };
-    view.editor.setSelection(from, to);
-    view.editor.scrollIntoView({ from, to }, true);
-    view.editor.focus();
+    if (matches.length > 0) {
+      const selections = matches.map((match) => ({
+        anchor: { line, ch: match.from },
+        head: { line, ch: match.to },
+      }));
+      view.editor.setSelections(selections, 0);
+      view.editor.scrollIntoView(
+        {
+          from: selections[0].anchor,
+          to: selections[selections.length - 1].head,
+        },
+        true,
+      );
+    } else {
+      const from = { line, ch: 0 };
+      const to = {
+        line: fallbackEndLine,
+        ch: view.editor.getLine(fallbackEndLine).length,
+      };
+      view.editor.setSelection(from, to);
+      view.editor.scrollIntoView({ from, to }, true);
+    }
+    if (!Platform.isMobileApp) view.editor.focus();
   }
 }
 
